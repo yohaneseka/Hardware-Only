@@ -1,20 +1,21 @@
 import tkinter as tk
 from tkinter import ttk
-import LGPIO.GPIO as GPIO
+import lgpio
 import time
 import threading
 
 # =====================
 # GPIO SETUP
 # =====================
-GPIO.setmode(GPIO.BCM)
-
+CHIP = 0   # GPIO chip default
 IN1, IN2, IN3, IN4 = 17, 18, 27, 22
 PINS = [IN1, IN2, IN3, IN4]
 
+chip = lgpio.gpiochip_open(CHIP)
+
+# Claim pins as output
 for p in PINS:
-    GPIO.setup(p, GPIO.OUT)
-    GPIO.output(p, 0)
+    lgpio.gpio_claim_output(chip, p, 0)
 
 # Half-step sequence
 SEQ = [
@@ -46,13 +47,14 @@ def move_steps(steps):
     for _ in range(steps):
         for s in (SEQ if direction == 1 else reversed(SEQ)):
             for pin, val in zip(PINS, s):
-                GPIO.output(pin, val)
+                lgpio.gpio_write(chip, pin, val)
             time.sleep(STEP_DELAY)
 
         current_position += direction
 
+    # Release coils (no holding torque)
     for p in PINS:
-        GPIO.output(p, 0)
+        lgpio.gpio_write(chip, p, 0)
 
     motor_busy = False
 
@@ -74,7 +76,10 @@ def slider_changed(val):
 # CLEAN EXIT
 # =====================
 def on_close():
-    GPIO.cleanup()
+    for p in PINS:
+        lgpio.gpio_write(chip, p, 0)
+
+    lgpio.gpiochip_close(chip)
     root.destroy()
 
 # =====================
@@ -89,8 +94,7 @@ root.protocol("WM_DELETE_WINDOW", on_close)
 frame = ttk.Frame(root, padding=15)
 frame.pack(fill="both", expand=True)
 
-ttk.Label(frame, text="Z-Axis Control",
-          font=("Arial", 14, "bold")).pack(pady=10)
+ttk.Label(frame, text="Z-Axis Control", font=("Arial", 14, "bold")).pack(pady=10)
 
 slider = ttk.Scale(
     frame,
@@ -106,8 +110,6 @@ pos_label = ttk.Label(frame, text="Position: 0 step",
                       font=("Arial", 11, "bold"))
 pos_label.pack(pady=10)
 
-ttk.Label(frame, text="↑ UP\n↓ DOWN",
-          font=("Arial", 9)).pack()
+ttk.Label(frame, text="↑ UP\n↓ DOWN", font=("Arial", 9)).pack()
 
 root.mainloop()
-
