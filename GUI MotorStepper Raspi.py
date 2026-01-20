@@ -1,22 +1,22 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import RPi.GPIO as GPIO
 import time
 import threading
 
 # =====================
-# GPIO CONFIG
+# GPIO SETUP
 # =====================
 GPIO.setmode(GPIO.BCM)
 
 IN1, IN2, IN3, IN4 = 17, 18, 27, 22
-pins = [IN1, IN2, IN3, IN4]
+PINS = [IN1, IN2, IN3, IN4]
 
-for p in pins:
+for p in PINS:
     GPIO.setup(p, GPIO.OUT)
     GPIO.output(p, 0)
 
-# Stepper sequence (half-step)
+# Half-step sequence
 SEQ = [
     [1,0,0,0],
     [1,1,0,0],
@@ -28,54 +28,52 @@ SEQ = [
     [1,0,0,1]
 ]
 
-step_delay = 0.002
-position = 0
+STEP_DELAY = 0.002
+
+current_position = 0
+motor_busy = False
 
 # =====================
-# MOTOR FUNCTION
+# MOTOR CONTROL
 # =====================
-def move(steps, direction):
-    global position
-    seq = SEQ if direction == 1 else reversed(SEQ)
+def move_steps(steps):
+    global current_position, motor_busy
+    motor_busy = True
 
-    for _ in range(abs(steps)):
-        for s in seq:
-            for pin, val in zip(pins, s):
+    direction = 1 if steps > 0 else -1
+    steps = abs(steps)
+
+    for _ in range(steps):
+        for s in (SEQ if direction == 1 else reversed(SEQ)):
+            for pin, val in zip(PINS, s):
                 GPIO.output(pin, val)
-            time.sleep(step_delay)
+            time.sleep(STEP_DELAY)
 
-        position += direction
+        current_position += direction
 
-    for p in pins:
+    for p in PINS:
         GPIO.output(p, 0)
 
+    motor_busy = False
+
 # =====================
-# BUTTON ACTIONS
+# SLIDER CALLBACK
 # =====================
-def fast_up():
-    steps = int(fast_entry.get())
-    threading.Thread(target=move, args=(steps, 1)).start()
-    update_position()
+def slider_changed(val):
+    global current_position, motor_busy
 
-def fast_down():
-    steps = int(fast_entry.get())
-    threading.Thread(target=move, args=(steps, -1)).start()
-    update_position()
+    target = int(float(val))
+    delta = target - current_position
 
-def fine_up():
-    steps = int(fine_entry.get())
-    threading.Thread(target=move, args=(steps, 1)).start()
-    update_position()
+    pos_label.config(text=f"Position: {current_position} step")
 
-def fine_down():
-    steps = int(fine_entry.get())
-    threading.Thread(target=move, args=(steps, -1)).start()
-    update_position()
+    if delta != 0 and not motor_busy:
+        threading.Thread(target=move_steps, args=(delta,), daemon=True).start()
 
-def update_position():
-    pos_label.config(text=f"Position: {position} step")
-
-def on_closing():
+# =====================
+# CLEAN EXIT
+# =====================
+def on_close():
     GPIO.cleanup()
     root.destroy()
 
@@ -83,45 +81,32 @@ def on_closing():
 # GUI
 # =====================
 root = tk.Tk()
-root.title("Microscope Z-Axis Control (Raspberry Pi)")
-root.geometry("350x420")
+root.title("Microscope Z-Axis Control (Slider)")
+root.geometry("350x300")
 root.resizable(False, False)
-root.protocol("WM_DELETE_WINDOW", on_closing)
+root.protocol("WM_DELETE_WINDOW", on_close)
 
 frame = ttk.Frame(root, padding=15)
 frame.pack(fill="both", expand=True)
 
-ttk.Label(frame, text="Microscope Motor Control",
-          font=("Arial", 14, "bold")).pack(pady=5)
+ttk.Label(frame, text="Z-Axis Control",
+          font=("Arial", 14, "bold")).pack(pady=10)
 
-# FAST
-fast_frame = ttk.LabelFrame(frame, text="FAST MOVE", padding=10)
-fast_frame.pack(fill="x", pady=5)
+slider = ttk.Scale(
+    frame,
+    from_=-5000,
+    to=5000,
+    orient="vertical",
+    command=slider_changed
+)
+slider.set(0)
+slider.pack(pady=10, fill="y")
 
-fast_entry = ttk.Entry(fast_frame, justify="center")
-fast_entry.insert(0, "2000")
-fast_entry.pack(pady=5)
+pos_label = ttk.Label(frame, text="Position: 0 step",
+                      font=("Arial", 11, "bold"))
+pos_label.pack(pady=10)
 
-ttk.Button(fast_frame, text="▲ FAST UP", command=fast_up).pack(fill="x")
-ttk.Button(fast_frame, text="▼ FAST DOWN", command=fast_down).pack(fill="x")
-
-# FINE
-fine_frame = ttk.LabelFrame(frame, text="FINE MOVE", padding=10)
-fine_frame.pack(fill="x", pady=5)
-
-fine_entry = ttk.Entry(fine_frame, justify="center")
-fine_entry.insert(0, "100")
-fine_entry.pack(pady=5)
-
-ttk.Button(fine_frame, text="▲ FINE UP", command=fine_up).pack(fill="x")
-ttk.Button(fine_frame, text="▼ FINE DOWN", command=fine_down).pack(fill="x")
-
-# POSITION
-pos_frame = ttk.LabelFrame(frame, text="Position", padding=10)
-pos_frame.pack(fill="x", pady=5)
-
-pos_label = ttk.Label(pos_frame, text="Position: 0 step",
-                      font=("Arial", 10, "bold"))
-pos_label.pack()
+ttk.Label(frame, text="↑ UP\n↓ DOWN",
+          font=("Arial", 9)).pack()
 
 root.mainloop()
