@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-import RPi.GPIO as GPIO
+import LGPIO.GPIO as GPIO
 import time
 import threading
 
@@ -110,3 +110,4 @@ ttk.Label(frame, text="↑ UP\n↓ DOWN",
           font=("Arial", 9)).pack()
 
 root.mainloop()
+
