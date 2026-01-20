@@ -1,23 +1,21 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import lgpio
 import time
 import threading
 
 # =====================
-# GPIO SETUP
+# GPIO CONFIG
 # =====================
-CHIP = 0   # GPIO chip default
+CHIP = 0
 IN1, IN2, IN3, IN4 = 17, 18, 27, 22
 PINS = [IN1, IN2, IN3, IN4]
 
 chip = lgpio.gpiochip_open(CHIP)
 
-# Claim pins as output
 for p in PINS:
     lgpio.gpio_claim_output(chip, p, 0)
 
-# Half-step sequence
 SEQ = [
     [1,0,0,0],
     [1,1,0,0],
@@ -35,7 +33,7 @@ current_position = 0
 motor_busy = False
 
 # =====================
-# MOTOR CONTROL
+# MOTOR LOGIC
 # =====================
 def move_steps(steps):
     global current_position, motor_busy
@@ -49,67 +47,104 @@ def move_steps(steps):
             for pin, val in zip(PINS, s):
                 lgpio.gpio_write(chip, pin, val)
             time.sleep(STEP_DELAY)
-
         current_position += direction
 
-    # Release coils (no holding torque)
     for p in PINS:
         lgpio.gpio_write(chip, p, 0)
 
     motor_busy = False
+    root.after(0, update_position_label)
+
+def safe_move(steps):
+    if not motor_busy:
+        threading.Thread(target=move_steps, args=(steps,), daemon=True).start()
+    else:
+        messagebox.showwarning("Warning", "Motor is busy!")
 
 # =====================
-# SLIDER CALLBACK
+# BUTTON ACTIONS
 # =====================
-def slider_changed(val):
-    global current_position, motor_busy
+def fast_up():
+    try:
+        steps = int(fast_entry.get())
+        safe_move(steps)
+    except ValueError:
+        messagebox.showerror("Error", "Invalid step value")
 
-    target = int(float(val))
-    delta = target - current_position
+def fast_down():
+    try:
+        steps = int(fast_entry.get())
+        safe_move(-steps)
+    except ValueError:
+        messagebox.showerror("Error", "Invalid step value")
 
+def fine_up():
+    try:
+        steps = int(fine_entry.get())
+        safe_move(steps)
+    except ValueError:
+        messagebox.showerror("Error", "Invalid step value")
+
+def fine_down():
+    try:
+        steps = int(fine_entry.get())
+        safe_move(-steps)
+    except ValueError:
+        messagebox.showerror("Error", "Invalid step value")
+
+def update_position_label():
     pos_label.config(text=f"Position: {current_position} step")
 
-    if delta != 0 and not motor_busy:
-        threading.Thread(target=move_steps, args=(delta,), daemon=True).start()
-
-# =====================
-# CLEAN EXIT
-# =====================
-def on_close():
+def on_closing():
     for p in PINS:
         lgpio.gpio_write(chip, p, 0)
-
     lgpio.gpiochip_close(chip)
     root.destroy()
 
 # =====================
-# GUI
+# GUI SETUP
 # =====================
 root = tk.Tk()
-root.title("Microscope Z-Axis Control (Slider)")
-root.geometry("350x300")
+root.title("Microscope Z-Axis Control (Raspberry Pi)")
+root.geometry("350x450")
 root.resizable(False, False)
-root.protocol("WM_DELETE_WINDOW", on_close)
+root.protocol("WM_DELETE_WINDOW", on_closing)
 
 frame = ttk.Frame(root, padding=15)
 frame.pack(fill="both", expand=True)
 
-ttk.Label(frame, text="Z-Axis Control", font=("Arial", 14, "bold")).pack(pady=10)
+ttk.Label(frame, text="Microscope Motor Control",
+          font=("Arial", 14, "bold")).pack(pady=5)
 
-slider = ttk.Scale(
-    frame,
-    from_=-5000,
-    to=5000,
-    orient="vertical",
-    command=slider_changed
-)
-slider.set(0)
-slider.pack(pady=10, fill="y")
+# FAST MOVE
+fast_frame = ttk.LabelFrame(frame, text="FAST MOVE", padding=10)
+fast_frame.pack(fill="x", pady=5)
 
-pos_label = ttk.Label(frame, text="Position: 0 step",
-                      font=("Arial", 11, "bold"))
-pos_label.pack(pady=10)
+ttk.Label(fast_frame, text="Steps:").pack()
+fast_entry = ttk.Entry(fast_frame, width=15, justify="center")
+fast_entry.insert(0, "2000")
+fast_entry.pack(pady=5)
 
-ttk.Label(frame, text="↑ UP\n↓ DOWN", font=("Arial", 9)).pack()
+ttk.Button(fast_frame, text="▲ FAST UP", command=fast_up).pack(pady=2, fill="x")
+ttk.Button(fast_frame, text="▼ FAST DOWN", command=fast_down).pack(pady=2, fill="x")
+
+# FINE MOVE
+fine_frame = ttk.LabelFrame(frame, text="FINE MOVE", padding=10)
+fine_frame.pack(fill="x", pady=5)
+
+ttk.Label(fine_frame, text="Steps:").pack()
+fine_entry = ttk.Entry(fine_frame, width=15, justify="center")
+fine_entry.insert(0, "100")
+fine_entry.pack(pady=5)
+
+ttk.Button(fine_frame, text="▲ FINE UP", command=fine_up).pack(pady=2, fill="x")
+ttk.Button(fine_frame, text="▼ FINE DOWN", command=fine_down).pack(pady=2, fill="x")
+
+# Position
+pos_frame = ttk.LabelFrame(frame, text="Position Info", padding=10)
+pos_frame.pack(fill="x", pady=5)
+
+pos_label = ttk.Label(pos_frame, text="Position: 0 step", font=("Arial", 10, "bold"))
+pos_label.pack(pady=5)
 
 root.mainloop()
